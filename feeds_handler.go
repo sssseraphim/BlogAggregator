@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/sssseraphim/gator/internal/database"
-	"time"
 )
 
 func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) error) func(*state, command) error {
@@ -25,12 +27,21 @@ func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) 
 }
 
 func handlerAgg(s *state, cmd command) error {
-	url := "https://www.wagslane.dev/index.xml"
-	rssFeed, err := fetchFeed(context.Background(), url)
-	if err != nil {
-		return fmt.Errorf("Failed to fetch: %v", err)
+	if len(cmd.args) < 1 {
+		return fmt.Errorf("no time given")
 	}
-	fmt.Print(rssFeed)
+	time_between_reqs, err := time.ParseDuration(cmd.args[0])
+	if err != nil {
+		return fmt.Errorf("wrong time given: %v", err)
+	}
+	fmt.Printf("Collecting feeds every %v/n", time_between_reqs)
+	ticker := time.NewTicker(time_between_reqs)
+	for ; ; <-ticker.C {
+		err := scrapeFeeds(s, context.Background())
+		if err != nil {
+			fmt.Printf("Failed to fetch: %v", err)
+		}
+	}
 	return nil
 }
 
@@ -117,6 +128,30 @@ func handlerUnfollow(s *state, cmd command, user database.User) error {
 		return fmt.Errorf("failed to unfollow: %v", err)
 	}
 	fmt.Printf("Unfollowed %v", feed.Name)
+	return nil
+}
+
+func handlerBrowse(s *state, cmd command, user database.User) error {
+	limit := 2
+	if len(cmd.args) >= 1 {
+		l, err := strconv.Atoi(cmd.args[0])
+		if err != nil {
+			limit = 2
+		} else {
+			limit = l
+		}
+	}
+	posts, err := s.db.GetPostsForUser(context.Background(), database.GetPostsForUserParams{
+		UserID: uuid.NullUUID{UUID: user.ID, Valid: true},
+		Limit:  int32(limit),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get posts: %v", err)
+	}
+	fmt.Println(len(posts))
+	for _, post := range posts {
+		fmt.Printf("%v\n%v\n%v\n%v\n\n", post.Title, post.Description.String, post.PublishedAt.Time, post.Url)
+	}
 	return nil
 
 }

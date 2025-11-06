@@ -51,3 +51,38 @@ WHERE users.name = $1;
 DELETE FROM feeds_follows
 WHERE user_id = $1
 AND feed_id = $2;
+
+-- name: MarkFeedFetched :exec
+UPDATE feeds
+SET last_fetched_at = $1,
+		updated_at = $1
+WHERE id = $2;
+
+-- name: GetNextFeedToFetch :one
+SELECT * from feeds
+ORDER BY last_fetched_at ASC NULLS FIRST
+LIMIT 1;
+
+-- name: CreatePost :one
+INSERT INTO posts (id, created_at, updated_at, title, url, description, published_at, feed_id) 
+VALUES(
+		$1,
+		$2,
+		$3,
+		$4,
+		$5,
+		$6,
+		$7,
+		$8
+)
+RETURNING *;
+
+-- name: GetPostsForUser :many
+SELECT *
+FROM posts
+INNER JOIN feeds ON posts.feed_id = feeds.id
+INNER JOIN feeds_follows ON feeds.id = feeds_follows.feed_id
+WHERE feeds_follows.user_id = $1
+ORDER BY posts.published_at DESC NULLS LAST
+LIMIT $2;
+
